@@ -1,5 +1,3 @@
-use std::fs::OpenOptions;
-use std::io::prelude::*;
 use std::time::SystemTime;
 use reqwest;
 use serde_json;
@@ -8,11 +6,11 @@ use serde::Deserialize;
 #[derive(Deserialize)]
 struct Config{
     github_token: String,
+    github_username: String,
     github_file_path: String,
     github_repo_name: String,
     github_branch: String,
     github_commit_message: String,
-    localfile_path: String,
 }
 
 fn retrieve_config() -> Result<Config, Box<dyn std::error::Error>>{
@@ -22,7 +20,7 @@ fn retrieve_config() -> Result<Config, Box<dyn std::error::Error>>{
 }
     
 fn retrieve_sha(config: &Config, client: &reqwest::blocking::Client) -> Result<String, Box<dyn std::error::Error>>{
-    let uri = format!("https://api.github.com/repos/{}/branches/{}", config.github_repo_name.clone(), config.github_branch.clone());
+    let uri = format!("https://api.github.com/repos/{}/{}/branches/{}", config.github_username.clone(), config.github_repo_name.clone(), config.github_branch.clone());
     let request = client.get(uri)
         .header(reqwest::header::USER_AGENT, "my-app/0.0.1"); 
     let res = request.send()?;
@@ -33,16 +31,12 @@ fn retrieve_sha(config: &Config, client: &reqwest::blocking::Client) -> Result<S
 }
 
 fn create_blob(config: &Config, client: &reqwest::blocking::Client) -> Result<String, Box<dyn std::error::Error>>{
-    // avoid borrow of partially moved value
-    let mut file = OpenOptions::new()
-        .read(true)
-        .open(config.localfile_path.clone())?;
     let now = SystemTime::now();
-    writeln!(file, "Commit + {:?}", now)?;
-    let content = std::fs::read_to_string(config.localfile_path.clone())?;
-    let request = client.post("https://api.github.com/repos/Jev1337/NiceOpener/git/blobs")
+    let content = now.duration_since(SystemTime::UNIX_EPOCH)?.as_secs().to_string();
+    let uri = format!("https://api.github.com/repos/{}/{}/git/blobs",config.github_username.clone(), config.github_repo_name.clone());
+    let request = client.post(uri)
     .header(reqwest::header::USER_AGENT, "my-app/0.0.1")
-    .header(reqwest::header::AUTHORIZATION, format!("token {}", config.github_token))
+    .header(reqwest::header::AUTHORIZATION, format!("token {}", config.github_token.clone()))
     .json(&serde_json::json!({
         "content": content,
         "encoding": "utf-8"
@@ -66,9 +60,10 @@ fn create_tree(sha: String, blob_sha: String, config: &Config, client: &reqwest:
             }}
         ]
     }}"#, sha, config.github_file_path.clone(), blob_sha);    
-    let tree = client.post("https://api.github.com/repos/Jev1337/NiceOpener/git/trees")
+    let uri = format!("https://api.github.com/repos/{}/{}/git/trees",config.github_username.clone(), config.github_repo_name.clone());
+    let tree = client.post(uri)
     .header(reqwest::header::USER_AGENT, "my-app/0.0.1")
-    .header(reqwest::header::AUTHORIZATION, "token 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")
+    .header(reqwest::header::AUTHORIZATION, format!("token {}", config.github_token.clone()))
     .body(json_string);
     let res = tree.send()?;
     let body = res.text()?;
@@ -85,9 +80,10 @@ fn create_commit(sha: String, tree_sha: String, config: &Config, client: &reqwes
             {}
         ]
     }}"#, config.github_commit_message.clone(), tree_sha, sha);
-    let commit = client.post("https://api.github.com/repos/Jev1337/NiceOpener/git/commits")
+    let uri = format!("https://api.github.com/repos/{}/{}/git/commits", config.github_username.clone(), config.github_repo_name.clone());
+    let commit = client.post(uri)
     .header(reqwest::header::USER_AGENT, "my-app/0.0.1")
-    .header(reqwest::header::AUTHORIZATION, "token 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")
+    .header(reqwest::header::AUTHORIZATION, format!("token {}", config.github_token.clone()))
     .body(json_string);
     let res = commit.send()?;
     let body = res.text()?;
@@ -96,31 +92,30 @@ fn create_commit(sha: String, tree_sha: String, config: &Config, client: &reqwes
     Ok(commit_sha)
 }
 
-fn update_ref(commit_sha: String, client: &reqwest::blocking::Client) -> Result<(), Box<dyn std::error::Error>>{
-    let update_ref = client.patch("https://api.github.com/repos/Jev1337/NiceOpener/git/refs/heads/main")
+fn update_ref(config: &Config, commit_sha: String, client: &reqwest::blocking::Client) -> Result<(), Box<dyn std::error::Error>>{
+    let uri = format!("https://api.github.com/repos/{}/{}/git/refs/heads/{}", config.github_username.clone(),config.github_repo_name.clone(), config.github_branch.clone());
+    let update_ref = client.patch(uri)
     .header(reqwest::header::USER_AGENT, "my-app/0.0.1")
-    .header(reqwest::header::AUTHORIZATION, "token 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")
+    .header(reqwest::header::AUTHORIZATION, format!("token {}", config.github_token.clone()))
     .body(format!(r#"{{"sha": {}}}"#, commit_sha));
     update_ref.send()?;
     Ok(())
 }
 
-fn patch(commit_sha: String, client: &reqwest::blocking::Client) -> Result<(), Box<dyn std::error::Error>>{
-    let res = client.patch("https://api.github.com/repos/Jev1337/NiceOpener/branches/main")
+fn patch(config: &Config, commit_sha: String, client: &reqwest::blocking::Client) -> Result<(),Box<dyn std::error::Error>>{
+    let uri = format!("https://api.github.com/repos/{}/{}/branches/{}",  config.github_username.clone(), config.github_repo_name.clone(), config.github_branch.clone());
+    let res = client.patch(uri)
         .header(reqwest::header::USER_AGENT, "my-app/0.0.1")
-        .header(reqwest::header::AUTHORIZATION, "token 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")
+        .header(reqwest::header::AUTHORIZATION, format!("token {}", config.github_token.clone()))
         .body(format!(r#"{{"sha": {}}}"#, commit_sha));
-    let res = res.send()?;
-    let branch_sha = res.json::<serde_json::Value>()?;
-    let branch_sha = branch_sha["sha"].to_string();
-    println!("sha: {}", branch_sha);
+    res.send()?;
     Ok(())
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = reqwest::blocking::Client::new();
     let config = retrieve_config()?;
-    let sha = retrieve_sha(&config, &client)?;
     println!("Getting last commit SHA...");
+    let sha = retrieve_sha(&config, &client)?;
     println!("sha: {}", sha);
     println!("Creating blob...");
     let blob_sha = create_blob(&config, &client)?;
@@ -128,12 +123,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Creating tree...");
     let tree_sha = create_tree(sha.clone(), blob_sha.clone(), &config, &client)?;
     println!("sha: {}", tree_sha);
+    println!("Creating commit...");
     let commit_sha = create_commit(sha.clone(), tree_sha.clone(), &config, &client)?;
     println!("sha: {}", commit_sha);
     println!("Updating ref...");
-    update_ref(commit_sha.clone(), &client)?;
-    println!("updated");
-    patch(commit_sha.clone(), &client)?;
-    println!("patched");
+    update_ref(&config, commit_sha.clone(), &client)?;
+    println!("Patching...");
+    patch(&config, commit_sha.clone(), &client)?;
+    println!("Done!");
     Ok(())
 }

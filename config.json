@@ -1,8 +1,8 @@
 {
     "github_token": "",
-    "github_file_path": "",
-    "github_repo_name": "",
-    "github_branch": "",
-    "github_commit_message": "",
-    "localfile_path": ""
+    "github_username": "Jev1337",
+    "github_file_path": "lastkommit.txt",
+    "github_repo_name": "Kommitter",
+    "github_branch": "main",
+    "github_commit_message": "Kommiter v1"
 }
