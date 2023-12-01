@@ -9,7 +9,7 @@ Kommitter is a simple CLI tool to (auto) commit to a github repo.
     - github_repo_name: The name of the repo you want to commit to.
     - github_branch: The branch you want to commit to.
     - github_commit_message: The commit message.
-3. Run the binary.
+3. Run the binary. (cargo run)
 4. Setup later with a scheduler (like in Windows)
 ## Example config.json
 ```json
