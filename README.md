@@ -1,5 +1,5 @@
 # Kommitter
-Kommitter is a simple CLI tool to commit to a github repo.
+Kommitter is a simple CLI tool to (auto) commit to a github repo.
 ## Usage
 1. Create a config.json file in the same directory as the binary.
 2. Fill in the config.json file with the following fields:
@@ -10,7 +10,7 @@ Kommitter is a simple CLI tool to commit to a github repo.
     - github_branch: The branch you want to commit to.
     - github_commit_message: The commit message.
 3. Run the binary.
-
+4. Setup later with a scheduler (like in Windows)
 ## Example config.json
 ```json
 {
