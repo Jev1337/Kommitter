@@ -32,15 +32,12 @@ fn retrieve_sha(config: &Config, client: &reqwest::blocking::Client) -> Result<S
 
 fn create_blob(config: &Config, client: &reqwest::blocking::Client) -> Result<String, Box<dyn std::error::Error>>{
     let now = SystemTime::now();
-    let content = now.duration_since(SystemTime::UNIX_EPOCH)?.as_secs().to_string();
+    let content = "This is an auto commit from Kommitter at ".to_owned() + &now.duration_since(SystemTime::UNIX_EPOCH)?.as_secs().to_string() + " seconds since the Unix Epoch.";
     let uri = format!("https://api.github.com/repos/{}/{}/git/blobs",config.github_username.clone(), config.github_repo_name.clone());
     let request = client.post(uri)
     .header(reqwest::header::USER_AGENT, "my-app/0.0.1")
     .header(reqwest::header::AUTHORIZATION, format!("token {}", config.github_token.clone()))
-    .json(&serde_json::json!({
-        "content": content,
-        "encoding": "utf-8"
-    }));
+    .body(format!(r#"{{"content": "{}", "encoding": "utf-8"}}"#, content));
     let res = request.send()?;
     let body = res.text()?; 
     let blob_sha: serde_json::Value = serde_json::from_str(&body)?;
@@ -133,5 +130,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Done!");
     Ok(())
 }
+
 
 
