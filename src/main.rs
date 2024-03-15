@@ -3,8 +3,9 @@ use reqwest;
 use serde_json;
 use serde::Deserialize;
 
+/// Represents the configuration for the GitHub repository and commit details.
 #[derive(Deserialize)]
-struct Config{
+struct Config {
     github_token: String,
     github_username: String,
     github_file_path: String,
@@ -13,15 +14,31 @@ struct Config{
     github_commit_message: String,
 }
 
-fn retrieve_config() -> Result<Config, Box<dyn std::error::Error>>{
+/// Checks the internet connection by sending a request to Google.
+/// Returns `Ok(())` if the request is successful, otherwise returns an error.
+fn check_internet_connection() -> Result<(), Box<dyn std::error::Error>> {
+    let client = reqwest::blocking::Client::new();
+    let res = client.get("http://www.google.com").send()?;
+    if res.status().is_success() {
+        Ok(())
+    } else {
+        Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, "No internet connection")))
+    }
+}
+
+/// Retrieves the configuration from the `config.json` file.
+/// Returns the parsed `Config` struct if successful, otherwise returns an error.
+fn retrieve_config() -> Result<Config, Box<dyn std::error::Error>> {
     let config = std::fs::read_to_string("config.json")?;
     let config: Config = serde_json::from_str(&config)?;
     Ok(config)
 }
-    
-fn retrieve_sha(config: &Config, client: &reqwest::blocking::Client) -> Result<String, Box<dyn std::error::Error>>{
-    let uri = format!("https://api.github.com/repos/{}/{}/branches/{}", config.github_username.clone(), config.github_repo_name.clone(), config.github_branch.clone());
-    let request = client.get(uri)
+
+/// Retrieves the SHA of the last commit on the specified branch of the GitHub repository.
+/// Returns the SHA as a string if successful, otherwise returns an error.
+fn retrieve_sha(config: &Config, client: &reqwest::blocking::Client) -> Result<String, Box<dyn std::error::Error>> {
+    let uri = format!("https://api.github.com/repos/{}/{}/branches/{}", &config.github_username, &config.github_repo_name, &config.github_branch);
+    let request = client.get(&uri)
         .header(reqwest::header::USER_AGENT, "my-app/0.0.1"); 
     let res = request.send()?;
     let body = res.text()?; 
@@ -30,14 +47,16 @@ fn retrieve_sha(config: &Config, client: &reqwest::blocking::Client) -> Result<S
     Ok(sha)
 }
 
-fn create_blob(config: &Config, client: &reqwest::blocking::Client) -> Result<String, Box<dyn std::error::Error>>{
+/// Creates a blob with the content of the commit message.
+/// Returns the SHA of the created blob if successful, otherwise returns an error.
+fn create_blob(config: &Config, client: &reqwest::blocking::Client) -> Result<String, Box<dyn std::error::Error>> {
     let now = SystemTime::now();
     let content = "This is an auto commit from Kommitter at ".to_owned() + &now.duration_since(SystemTime::UNIX_EPOCH)?.as_secs().to_string() + " seconds since the Unix Epoch.";
-    let uri = format!("https://api.github.com/repos/{}/{}/git/blobs",config.github_username.clone(), config.github_repo_name.clone());
-    let request = client.post(uri)
-    .header(reqwest::header::USER_AGENT, "my-app/0.0.1")
-    .header(reqwest::header::AUTHORIZATION, format!("token {}", config.github_token.clone()))
-    .body(format!(r#"{{"content": "{}", "encoding": "utf-8"}}"#, content));
+    let uri = format!("https://api.github.com/repos/{}/{}/git/blobs", &config.github_username, &config.github_repo_name);
+    let request = client.post(&uri)
+        .header(reqwest::header::USER_AGENT, "my-app/0.0.1")
+        .header(reqwest::header::AUTHORIZATION, format!("token {}", &config.github_token))
+        .body(format!(r#"{{"content": "{}", "encoding": "utf-8"}}"#, content));
     let res = request.send()?;
     let body = res.text()?; 
     let blob_sha: serde_json::Value = serde_json::from_str(&body)?;
@@ -45,7 +64,9 @@ fn create_blob(config: &Config, client: &reqwest::blocking::Client) -> Result<St
     Ok(blob_sha)
 }
 
-fn create_tree(sha: String, blob_sha: String, config: &Config, client: &reqwest::blocking::Client) -> Result<String, Box<dyn std::error::Error>>{
+/// Creates a tree with the specified SHA and blob SHA.
+/// Returns the SHA of the created tree if successful, otherwise returns an error.
+fn create_tree(sha: String, blob_sha: String, config: &Config, client: &reqwest::blocking::Client) -> Result<String, Box<dyn std::error::Error>> {
     let json_string = format!(r#"{{
         "base_tree": {},
         "tree": [
@@ -56,12 +77,12 @@ fn create_tree(sha: String, blob_sha: String, config: &Config, client: &reqwest:
                 "sha": {}
             }}
         ]
-    }}"#, sha, config.github_file_path.clone(), blob_sha);    
-    let uri = format!("https://api.github.com/repos/{}/{}/git/trees",config.github_username.clone(), config.github_repo_name.clone());
-    let tree = client.post(uri)
-    .header(reqwest::header::USER_AGENT, "my-app/0.0.1")
-    .header(reqwest::header::AUTHORIZATION, format!("token {}", config.github_token.clone()))
-    .body(json_string);
+    }}"#, sha, &config.github_file_path, blob_sha);    
+    let uri = format!("https://api.github.com/repos/{}/{}/git/trees", &config.github_username, &config.github_repo_name);
+    let tree = client.post(&uri)
+        .header(reqwest::header::USER_AGENT, "my-app/0.0.1")
+        .header(reqwest::header::AUTHORIZATION, format!("token {}", &config.github_token))
+        .body(json_string);
     let res = tree.send()?;
     let body = res.text()?;
     let tree_sha: serde_json::Value = serde_json::from_str(&body)?;
@@ -69,19 +90,21 @@ fn create_tree(sha: String, blob_sha: String, config: &Config, client: &reqwest:
     Ok(tree_sha)
 }
 
-fn create_commit(sha: String, tree_sha: String, config: &Config, client: &reqwest::blocking::Client) -> Result<String, Box<dyn std::error::Error>>{
+/// Creates a commit with the specified SHA, tree SHA, and commit message.
+/// Returns the SHA of the created commit if successful, otherwise returns an error.
+fn create_commit(sha: String, tree_sha: String, config: &Config, client: &reqwest::blocking::Client) -> Result<String, Box<dyn std::error::Error>> {
     let json_string = format!(r#"{{
         "message": "{}",
         "tree": {},
         "parents": [
             {}
         ]
-    }}"#, config.github_commit_message.clone(), tree_sha, sha);
-    let uri = format!("https://api.github.com/repos/{}/{}/git/commits", config.github_username.clone(), config.github_repo_name.clone());
-    let commit = client.post(uri)
-    .header(reqwest::header::USER_AGENT, "my-app/0.0.1")
-    .header(reqwest::header::AUTHORIZATION, format!("token {}", config.github_token.clone()))
-    .body(json_string);
+    }}"#, &config.github_commit_message, tree_sha, sha);
+    let uri = format!("https://api.github.com/repos/{}/{}/git/commits", &config.github_username, &config.github_repo_name);
+    let commit = client.post(&uri)
+        .header(reqwest::header::USER_AGENT, "my-app/0.0.1")
+        .header(reqwest::header::AUTHORIZATION, format!("token {}", &config.github_token))
+        .body(json_string);
     let res = commit.send()?;
     let body = res.text()?;
     let commit_sha: serde_json::Value = serde_json::from_str(&body)?;
@@ -89,26 +112,33 @@ fn create_commit(sha: String, tree_sha: String, config: &Config, client: &reqwes
     Ok(commit_sha)
 }
 
-fn update_ref(config: &Config, commit_sha: String, client: &reqwest::blocking::Client) -> Result<(), Box<dyn std::error::Error>>{
-    let uri = format!("https://api.github.com/repos/{}/{}/git/refs/heads/{}", config.github_username.clone(),config.github_repo_name.clone(), config.github_branch.clone());
-    let update_ref = client.patch(uri)
-    .header(reqwest::header::USER_AGENT, "my-app/0.0.1")
-    .header(reqwest::header::AUTHORIZATION, format!("token {}", config.github_token.clone()))
-    .body(format!(r#"{{"sha": {}}}"#, commit_sha));
+/// Updates the reference of the branch to the specified commit SHA.
+/// Returns `Ok(())` if successful, otherwise returns an error.
+fn update_ref(config: &Config, commit_sha: String, client: &reqwest::blocking::Client) -> Result<(), Box<dyn std::error::Error>> {
+    let uri = format!("https://api.github.com/repos/{}/{}/git/refs/heads/{}", &config.github_username, &config.github_repo_name, &config.github_branch);
+    let update_ref = client.patch(&uri)
+        .header(reqwest::header::USER_AGENT, "my-app/0.0.1")
+        .header(reqwest::header::AUTHORIZATION, format!("token {}", &config.github_token))
+        .body(format!(r#"{{"sha": {}}}"#, commit_sha));
     update_ref.send()?;
     Ok(())
 }
 
-fn patch(config: &Config, commit_sha: String, client: &reqwest::blocking::Client) -> Result<(),Box<dyn std::error::Error>>{
-    let uri = format!("https://api.github.com/repos/{}/{}/branches/{}",  config.github_username.clone(), config.github_repo_name.clone(), config.github_branch.clone());
-    let res = client.patch(uri)
+/// Patches the branch with the specified commit SHA.
+/// Returns `Ok(())` if successful, otherwise returns an error.
+fn patch(config: &Config, commit_sha: String, client: &reqwest::blocking::Client) -> Result<(),Box<dyn std::error::Error>> {
+    let uri = format!("https://api.github.com/repos/{}/{}/branches/{}", &config.github_username, &config.github_repo_name, &config.github_branch);
+    let res = client.patch(&uri)
         .header(reqwest::header::USER_AGENT, "my-app/0.0.1")
-        .header(reqwest::header::AUTHORIZATION, format!("token {}", config.github_token.clone()))
+        .header(reqwest::header::AUTHORIZATION, format!("token {}", &config.github_token))
         .body(format!(r#"{{"sha": {}}}"#, commit_sha));
     res.send()?;
     Ok(())
 }
+
+/// The main function that executes the commit process.
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    check_internet_connection()?;
     let client = reqwest::blocking::Client::new();
     let config = retrieve_config()?;
     println!("Getting last commit SHA...");
@@ -130,6 +160,3 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Done!");
     Ok(())
 }
-
-
-
